@@ -215,7 +215,23 @@ handle_info({NetEvent, _Socket, Data}, wait_ack, State=#state_rcv{rate_limit=Tok
                             {S1,_Wait}=token_bucket(R,Burst,S0,T0,size(Data),now(),true),
                             TokenParam#token_bucket{current_size=S1, last_packet_date=now()}
                     end,
-    {NewState, Opts} = handle_data_msg(Data, State),
+    {AccData, AccState} = case State#state_rcv.protocol of
+        websocket ->
+            Acc = list_to_binary(State#state_rcv.acc),
+            WSData = case size(Acc) of
+                0 -> Data;
+                _ -> <<Acc/binary, Data/binary>>
+            end,
+            {DecodeMsg, _Left} = ts_websocket_util:decode_msg(WSData),
+            S = case _Left of 
+                none -> State;
+                _Any -> State#state_rcv{acc = binary_to_list(_Left)}
+            end,
+            {DecodeMsg, S};
+        _ ->
+            {Data, State}
+    end,
+    {NewState, Opts} = handle_data_msg(AccData, AccState),
     NewSocket = ts_utils:inet_setopts(NewState#state_rcv.protocol,
                                       NewState#state_rcv.socket,
                                       [{active, once} | Opts]),
@@ -905,6 +921,8 @@ socket_opts(IP, CPort, _)->
 %% Purpose: wrapper function for send
 %% Return: ok | {error, Reason}
 %%----------------------------------------------------------------------
+send(websocket, Socket, Message,_,_) ->
+    ts_websocket_util:send(Socket, Message);
 send(gen_tcp,Socket,Message,_,_)        -> gen_tcp:send(Socket,Message);
 send(ssl,Socket,Message,_,_)            -> ssl:send(Socket,Message);
 send(gen_udp,Socket,Message,Host,Port)  ->gen_udp:send(Socket,Host,Port,Message);
@@ -920,6 +938,8 @@ send(erlang,Pid,Message,_,_) ->
 %% Func: connect/4
 %% Return: {ok, Socket} | {error, Reason}
 %%----------------------------------------------------------------------
+connect(websocket,Server, Port, Opts) ->
+    ts_websocket_util:connect(Server, Port, Opts);
 connect(gen_tcp,Server, Port, Opts)   -> gen_tcp:connect(Server, Port, Opts);
 connect(ssl,Server, Port,Opts)        -> ssl:connect(Server, Port, Opts);
 connect(gen_udp,_Server, _Port, Opts) -> gen_udp:open(0,Opts);
@@ -948,6 +968,12 @@ protocol_options(gen_tcp6,Val) ->
 protocol_options(gen_tcp,#proto_opts{tcp_rcv_size=Rcv, tcp_snd_size=Snd}) ->
     [binary,
      {active, once},
+     {recbuf, Rcv},
+     {sndbuf, Snd},
+     {keepalive, true} %% FIXME: should be an option
+    ];
+protocol_options(websocket,#proto_opts{tcp_rcv_size=Rcv, tcp_snd_size=Snd}) ->
+    [binary,
      {recbuf, Rcv},
      {sndbuf, Snd},
      {keepalive, true} %% FIXME: should be an option

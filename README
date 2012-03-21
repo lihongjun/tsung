@@ -25,4 +25,25 @@ Join the mailing-list:
 or use the tracker https://support.process-one.net/browse/TSUN
 
 
+====================================================================
 
+The Websocket implementation for Tsung.
+
+Use as following:
+	1) add websocket as server type
+	<server host="10.100.82.217" port="5333" type="websocket"/>
+	then any up protocal can run on websocket, for example, XMPP over websocket.
+	
+	2) add websocket as session type
+	it currently support three kind of request: connect, message, close.
+	<session probability="100" name="websocket" type="ts_websocket">
+		<request>
+			<websocket type="connect"></websocket>
+		</request>
+		<request>
+			<websocket type="message">Hello world again</websocket>
+		</request>
+		<request>
+			<websocket type="close"></websocket>
+		</request>
+	</session>

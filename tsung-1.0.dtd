@@ -20,7 +20,7 @@
 <!ATTLIST server
      host NMTOKEN #REQUIRED
      port NMTOKEN #REQUIRED
-     type (ssl | tcp | udp | erlang | ssl6 | tcp6 | udp6) #REQUIRED>
+     type (ssl | tcp | udp | erlang | ssl6 | tcp6 | udp6 | websocket) #REQUIRED>
 
 <!ELEMENT clients (client+)>
 <!ELEMENT client (ip*) >
@@ -99,7 +99,7 @@
     id       NMTOKEN #IMPLIED
     min      NMTOKEN #IMPLIED
     max      NMTOKEN #IMPLIED
-    type     (ts_http | ts_jabber | ts_pgsql) #IMPLIED
+    type     (ts_http | ts_jabber | ts_pgsql | ts_websocket) #IMPLIED
     value    CDATA #IMPLIED>
 
 <!ELEMENT set_option (user_agent*)>
@@ -119,7 +119,7 @@ repeat | if | change_type | foreach | set_option)*>
     bidi         CDATA #IMPLIED
     persistent   (true | false) #IMPLIED
     probability   NMTOKEN #REQUIRED
-    type         (ts_jabber | ts_http | ts_raw | ts_pgsql | ts_ldap | ts_webdav |ts_mysql| ts_fs |ts_shell|ts_job) #REQUIRED>
+    type         (ts_jabber | ts_http | ts_raw | ts_pgsql | ts_ldap | ts_webdav |ts_mysql| ts_fs |ts_shell|ts_job|ts_websocket) #REQUIRED>
 
 <!ELEMENT change_type EMPTY>
 <!ATTLIST change_type
@@ -132,7 +132,7 @@ repeat | if | change_type | foreach | set_option)*>
     >
 
 <!ELEMENT request ( match*, dyn_variable*, ( http | jabber | raw |
-          pgsql | ldap | mysql |fs | shell | job ) )>
+          pgsql | ldap | mysql |fs | shell | job | websocket) )>
 <!ATTLIST request
     subst (true|false) "false"
     >
@@ -380,4 +380,7 @@ repeat | if | change_type | foreach | set_option)*>
     var  CDATA #REQUIRED
     eq   CDATA #IMPLIED
     neq  CDATA #IMPLIED >
+<!ELEMENT websocket (#PCDATA) >
+<!ATTLIST websocket
+    type (connect | message | close) #REQUIRED >
 

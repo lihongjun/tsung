@@ -251,6 +251,7 @@ mkey1search(List, Key) ->
 
 %% close socket if it exists
 close_socket(_Protocol, none) -> ok;
+close_socket(websocket, Socket) -> gen_tcp:close(Socket);
 close_socket(gen_tcp, Socket) -> gen_tcp:close(Socket);
 close_socket(gen_tcp6, Socket)-> gen_tcp:close(Socket);
 close_socket(ssl, Socket)     -> ssl:close(Socket);
