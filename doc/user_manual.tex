@@ -1071,12 +1071,13 @@ those set in session configuration tags if override is true.
 
 \paragraph{Timeout for acknowledgments of messages}
 
-This is used to set the local ack timeout and global ack timeout(ms). 
-By default, local ack timeout will be 10min(600000) and global ack timeout will
-be \userinput{infinity}. This value can be changed like this:
+This is used to set the idle timeout(used for 'parse' and 'local' ack) and
+global ack timeout(used for 'global' ack). By default, idle timeout will be
+10min(600000) and global ack timeout will be \userinput{infinity}. This value
+can be changed like this:
 
 \begin{Verbatim}
-  <option name="local_ack_timeout" value="300000"></option>
+  <option name="idle_timeout" value="300000"></option>
   <option name="glocal_ack_timeout" value="6000000"></option>
 \end{Verbatim}
 

@@ -706,10 +706,16 @@ parse(Element = #xmlElement{name=option, attributes=Attrs},
                     NewProto =  OldProto#proto_opts{udp_snd_size=Size},
                     lists:foldl( fun parse/2, Conf#config{proto_opts=NewProto},
                                  Element#xmlElement.content);
-                "tcp_timeout" ->
-                    Timeout = getAttr(integer,Attrs, value, ?config(tcp_timeout)),
+                "idle_timeout" ->
+                    Timeout = getAttr(integer,Attrs, value, ?config(idle_timeout)),
                     OldProto =  Conf#config.proto_opts,
                     NewProto =  OldProto#proto_opts{idle_timeout=Timeout},
+                    lists:foldl( fun parse/2, Conf#config{proto_opts=NewProto},
+                                 Element#xmlElement.content);
+                "global_ack_timeout" ->
+                    Timeout = getAttr(integer,Attrs, value, ?config(global_ack_timeout)),
+                    OldProto =  Conf#config.proto_opts,
+                    NewProto =  OldProto#proto_opts{global_ack_timeout=Timeout},
                     lists:foldl( fun parse/2, Conf#config{proto_opts=NewProto},
                                  Element#xmlElement.content);
                 "retry_timeout" ->
