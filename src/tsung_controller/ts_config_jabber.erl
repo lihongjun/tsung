@@ -90,6 +90,7 @@ parse_config(Element = #xmlElement{name=jabber},
     %%            offline_user()
     %%        Otherwise:    (any other string)
     %%          The specified string
+    SubId = ts_config:getAttr(string, Element#xmlElement.attributes, 'subid', undefined),
 
     Domain  =ts_config:get_default(Tab, jabber_domain_name, jabber_domain),
     MUC_service = ts_config:get_default(Tab, muc_service, muc_service),
@@ -136,7 +137,8 @@ parse_config(Element = #xmlElement{name=jabber},
                                     muc_service = MUC_service,
                                     pubsub_service = PubSub_service,
                                     node = Node,
-                                    node_type = NodeType
+                                    node_type = NodeType,
+									subid = SubId
                                    }
                    },
     ts_config:mark_prev_req(Id-1, Tab, CurS),
