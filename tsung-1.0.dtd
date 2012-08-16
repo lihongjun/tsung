@@ -383,5 +383,6 @@ repeat | if | change_type | foreach | set_option)*>
     neq  CDATA #IMPLIED >
 <!ELEMENT websocket (#PCDATA) >
 <!ATTLIST websocket
-    type (connect | message | close) #REQUIRED >
+    type (connect | message | close) #REQUIRED
+    path CDATA "/" >
 

@@ -38,7 +38,7 @@ Use as following:
     it currently support three kind of request: connect, message, close.
     <session probability="100" name="websocket" type="ts_websocket">
 	    <request>
-            <websocket type="connect"></websocket>
+            <websocket type="connect" path="/path/to/ws"></websocket>
         </request>
         <request>
             <websocket type="message">Hello world!</websocket>

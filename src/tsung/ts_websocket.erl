@@ -45,8 +45,9 @@ dump(A,B) ->
 %% Args:	record
 %% Returns: binary
 %%----------------------------------------------------------------------
-get_message(#websocket_request{type=connect}, State=#state_rcv{session=WS}) ->
-    {Req, Accept} = ts_websocket_util:initial_request(State#state_rcv.host, "/"),
+get_message(#websocket_request{type=connect, path=Path},
+    State=#state_rcv{session=WS}) ->
+    {Req, Accept} = ts_websocket_util:initial_request(State#state_rcv.host, Path),
     {erlang:list_to_binary(Req), WS#ws_session{stage=handshake, accept=Accept}};
 get_message(#websocket_request{type=message, data=Data},#state_rcv{session=S}) ->
     {ts_websocket_util:encode_msg(list_to_binary(Data)), S};

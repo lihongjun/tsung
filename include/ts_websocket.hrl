@@ -29,6 +29,7 @@
 -record(websocket_request, {
           draf = "bybi-10", % default is bybi-10
           type, % connect or message
+          path, % connection path
           dataLen, % length of payload data
           data = []
          }).
