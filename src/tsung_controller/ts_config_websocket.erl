@@ -23,7 +23,7 @@ parse_config(Element = #xmlElement{name=websocket},
 			    subst    = SubstFlag, match=MatchRegExp}) ->
     Type = ts_config:getAttr(atom, Element#xmlElement.attributes, type),
     ValRaw = ts_config:getText(Element#xmlElement.content),
-    Path = ts_config:getAttr(string, Element#xmlElement.attributes, path),
+    Path = ts_config:getAttr(string, Element#xmlElement.attributes, path, "/"),
 
     %is this needed ?
     CleanStr = ts_utils:clean_str(ValRaw),

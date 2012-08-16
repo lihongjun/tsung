@@ -35,7 +35,8 @@ Use as following:
     then any up protocal can run on websocket, for example, XMPP over websocket.
 	
 2) add websocket as session type
-    it currently support three kind of request: connect, message, close.
+    it currently support three kind of request: connect(the default path is "/")
+    , message, close.
     <session probability="100" name="websocket" type="ts_websocket">
 	    <request>
             <websocket type="connect" path="/path/to/ws"></websocket>
