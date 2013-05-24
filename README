@@ -1,3 +1,6 @@
+(This branch should be ingnored, the AMQP support for tsung has been
+merge to the official trunk, check the latest code of tsung)
+
 # Tsung README
 
 ##  Introduction
