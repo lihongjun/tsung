@@ -51,7 +51,8 @@
           connections=[],   % cache connect stats msgs
           match=[],         % cache match logs
           protocol=[],      % cache dump=protocol data
-          sum               % cache sum stats msgs
+          sum,              % cache sum stats msgs
+          timestamp=now()
          }).
 
 -define(DUMP_STATS_INTERVAL, 500). % in milliseconds
@@ -129,13 +130,15 @@ handle_cast({add, Data}, State) when is_list(Data) ->
     LastState = lists:foldl(fun(NewData,NewState)->
                         update_stats(NewData,NewState)
                 end, State, Data),
-    {noreply, LastState };
+    {noreply, check_and_dumpstats(LastState)};
 handle_cast({add, Data}, State) when is_tuple(Data) ->
-    {noreply,update_stats(Data, State)};
+    LastState = update_stats(Data, State),
+    {noreply, check_and_dumpstats(LastState)};
 handle_cast({add_match, Data=[First|_Tail],{UserId,SessionId,RequestId,TimeStamp,Bin,Tr,Name}},
             State=#state{stats=List, match=MatchList})->
     NewMatchList=lists:append([{UserId,SessionId,RequestId,TimeStamp,First, Bin, Tr,Name}], MatchList),
-    {noreply, State#state{stats = lists:append(Data, List), match = NewMatchList}};
+    LastState = State#state{stats = lists:append(Data, List), match = NewMatchList},
+    {noreply, check_and_dumpstats(LastState)};
 
 handle_cast({dump, Who, When, What}, State=#state{protocol=Cache}) ->
     Log = io_lib:format("~w;~w;~s~n",[ts_utils:time2sec_hires(When),Who,What]),
@@ -151,18 +154,12 @@ handle_cast(_Msg, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
-handle_info({timeout, _Ref, dump_stats}, State =#state{protocol=ProtocolData, stats= Stats, match=MatchList}) ->
-    Fun = fun(Key,Val, Acc) -> [{sum,Key,Val}| Acc] end,
-    NewStats=dict:fold(Fun, Stats, State#state.sum),
-    ts_stats_mon:add(NewStats),
-    ts_stats_mon:add(State#state.requests,request),
-    ts_stats_mon:add(State#state.connections,connect),
-    ts_stats_mon:add(State#state.transactions,transaction),
-    ts_stats_mon:add(State#state.pages,page),
-    ts_mon:dump({cached, list_to_binary(lists:reverse(ProtocolData))}),
-    ts_match_logger:add(MatchList),
+handle_info({timeout, _Ref, dump_stats}, State) ->
+    dumpstats(State),
     erlang:start_timer(?DUMP_STATS_INTERVAL, self(), dump_stats ),
-    {noreply, State#state{protocol=[],stats=[],match=[],pages=[],requests=[],transactions=[],connections=[],sum=dict:new()}};
+    {noreply,
+     State#state{protocol=[],stats=[],match=[],pages=[],requests=[],
+                 transactions=[],connections=[],sum=dict:new(),timestamp=now()}};
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -183,7 +180,6 @@ terminate(Reason, _State) ->
 %%--------------------------------------------------------------------
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
 
 update_stats({sample, request, Val}, State=#state{requests=L}) ->
     State#state{requests=lists:append([Val],L)};
@@ -206,4 +202,27 @@ update_stats({count, Type}, State=#state{sum=Sum}) ->
 update_stats(Data, State=#state{stats=L})  when is_tuple(Data)->
     State#state{stats=lists:append([Data],L)}.
 
+check_and_dumpstats(State = #state{timestamp = LastDump}) ->
+    Now = now(),
+    Diff = timer:now_diff(Now, LastDump) / 1000,
+    NewState = case Diff >= ?DUMP_STATS_INTERVAL of
+        true ->
+            dumpstats(State),
+            State#state{protocol=[],stats=[],match=[],pages=[],requests=[],
+                        transactions=[],connections=[],sum=dict:new(),timestamp=Now};
+        false ->
+            State
+    end,
+    NewState.
 
+dumpstats(State = #state{protocol = ProtocolData,
+                         stats = Stats, match = MatchList}) ->
+    Fun = fun(Key,Val, Acc) -> [{sum,Key,Val}| Acc] end,
+    NewStats=dict:fold(Fun, Stats, State#state.sum),
+    ts_stats_mon:add(NewStats),
+    ts_stats_mon:add(State#state.requests,request),
+    ts_stats_mon:add(State#state.connections,connect),
+    ts_stats_mon:add(State#state.transactions,transaction),
+    ts_stats_mon:add(State#state.pages,page),
+    ts_mon:dump({cached, list_to_binary(lists:reverse(ProtocolData))}),
+    ts_match_logger:add(MatchList).
