@@ -91,7 +91,8 @@ init(#session{ id           = SessionId,
                dump         = Dump,
                seed         = Seed,
                server       = Server,
-               type         = CType}) ->
+               type         = CType,
+               req_list     = ReqList}) ->
     ?DebugF("Init ... started with count = ~p~n",[Count]),
     case Seed of
         now ->
@@ -128,6 +129,9 @@ init(#session{ id           = SessionId,
                                 undefined ->
                                     {undefined, ?size_mon_thresh}
                end,
+    lists:foldl(fun({Sid, Seq, Request}, Acc0) ->
+                put({session_request, Sid, Seq}, Request), Acc0 end,
+                not_used, ReqList),
     {ok, think, #state_rcv{ port       = Server#server.port,
                             host       = Server#server.host,
                             session_id = SessionId,
@@ -930,7 +934,14 @@ handle_timeout_while_sending(State) ->
 %% Args: MaxCount, Count (integer), ProfileId (integer)
 %%----------------------------------------------------------------------
 set_profile(MaxCount, Count, ProfileId) when is_integer(ProfileId) ->
-    ts_session_cache:get_req(ProfileId, MaxCount-Count+1).
+    %%ts_session_cache:get_req(ProfileId, MaxCount-Count+1).
+    Seq = MaxCount-Count+1,
+    case get({session_request, ProfileId, Seq}) of
+        undefined -> {error, not_found};
+        Request ->
+            ?DebugF("next request: ~p ~n",[Request]),
+            Request
+    end.
 
 %%----------------------------------------------------------------------
 %% Func: reconnect/4

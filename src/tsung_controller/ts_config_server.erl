@@ -192,6 +192,20 @@ init([LogDir]) ->
     ?LOGF("Config server started, logdir is ~p~n ",[LogDir],?NOTICE),
     {ok, #state{logdir=LogDir, hostname=list_to_atom(MyHostName)}}.
 
+
+get_session_req(_Id, 0, ReqList, _State) ->
+    ?DebugF("request list for session ~p:~n~p",[_Id,ReqList]),
+    ReqList;
+get_session_req(Id, Seq, ReqList, State) ->
+    Config = State#state.config,
+    Tab = Config#config.session_tab,
+    NewReqList = case ets:lookup(Tab, {Id, Seq}) of
+        [{_, Req}] -> [{Id, Seq, Req} | ReqList];
+        _ -> ReqList
+    end,
+    get_session_req(Id, Seq - 1, NewReqList, State).
+
+
 %%--------------------------------------------------------------------
 %% Function: handle_call/3
 %% Description: Handling call messages
@@ -284,12 +298,13 @@ handle_call({get_next_session, HostName, PhaseId}, _From, State=#state{users=Use
     {value, Client} = lists:keysearch(HostName, #client.host, Config#config.clients),
     ?DebugF("get new session for ~p~n",[_From]),
     case choose_session(Config#config.sessions, Config#config.total_popularity, PhaseId) of
-        {ok, Session=#session{id=Id}} ->
+        {ok, Session=#session{id=Id,size=Count}} ->
             ?LOGF("Session ~p choosen~n",[Id],?INFO),
             ts_mon:newclient({Id,?NOW}),
             {IPParam, Server} = get_user_param(Client,Config),
-            {reply, {ok, Session#session{client_ip= IPParam, server=Server,userid=Users,
-                                         dump=Config#config.dump, seed=Config#config.seed}},
+            {reply, {ok, Session#session{client_ip=IPParam, server=Server,userid=Users,
+                                         dump=Config#config.dump,seed=Config#config.seed,
+                                         req_list=get_session_req(Id,Count,[],State)}},
              State#state{users=Users+1} };
         Other ->
             {reply, {error, Other}, State}

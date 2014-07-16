@@ -109,7 +109,8 @@
           server,
           userid,
           seed,
-          dump
+          dump,
+          req_list
         }).
 
 -record(arrivalphase,
