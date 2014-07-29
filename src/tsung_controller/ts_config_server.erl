@@ -302,9 +302,11 @@ handle_call({get_next_session, HostName, PhaseId}, _From, State=#state{users=Use
             ?LOGF("Session ~p choosen~n",[Id],?INFO),
             ts_mon:newclient({Id,?NOW}),
             {IPParam, Server} = get_user_param(Client,Config),
+            Node = node(),
             {reply, {ok, Session#session{client_ip=IPParam, server=Server,userid=Users,
                                          dump=Config#config.dump,seed=Config#config.seed,
-                                         req_list=get_session_req(Id,Count,[],State)}},
+                                         req_list=get_session_req(Id,Count,[],State),
+                                         node = Node}},
              State#state{users=Users+1} };
         Other ->
             {reply, {error, Other}, State}

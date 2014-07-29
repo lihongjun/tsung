@@ -39,14 +39,15 @@
 -include("ts_config.hrl").
 
 %% External exports, API
--export([start/0, start/1, stop/0, stop/1,
-         add/1, add/2, dumpstats/0, dumpstats/1,
+-export([start/0, start/2, stop/0, stop/1,
+         add/1, add/2, add/3, dumpstats/0, dumpstats/1,
          set_output/2, set_output/3,
-         status/1, status/2 ]).
+         status/1, status/2, wait/2]).
 
 %% More external exports for ts_mon
 -export([update_stats/3, add_stats_data/2, reset_all_stats/1]).
 -export([print_stats/3]).
+-export([export_stats/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
@@ -69,43 +70,50 @@
 %% @spec start(Id::term()) -> ok | throw({error, Reason})
 %% @doc Start the monitoring process
 %%----------------------------------------------------------------------
-start(Id) ->
-    ?LOGF("starting ~p stats server, global ~n",[Id],?INFO),
-    gen_server:start_link({global, Id}, ?MODULE, [Id], []).
+start(Id, Type) ->
+    ?LOGF("starting ~p stats server, global ~p~n",[Id, Type],?INFO),
+    gen_server:start_link({local, Id}, ?MODULE, [Id, Type], []).
 
 start() ->
     ?LOG("starting stats server, global ~n",?INFO),
-    gen_server:start_link({global, ?MODULE}, ?MODULE, [?MODULE], []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [?MODULE], []).
 
 stop(Id) ->
-    gen_server:cast({global, Id}, {stop}).
+    gen_server:cast(Id, {stop}).
 
 stop() ->
-    gen_server:cast({global, ?MODULE}, {stop}).
+    gen_server:cast(?MODULE, {stop}).
+
+wait(Time, Id) ->
+    gen_server:cast(Id, {wait, Id, Time}).
 
 add([]) -> ok;
 add(Data) ->
-    gen_server:cast({global, ?MODULE}, {add, Data}).
+    gen_server:cast(?MODULE, {add, Data}).
 
 add([], _Id) -> ok;
 add(Data, Id) ->
-    gen_server:cast({global, Id}, {add, Data}).
+    gen_server:cast(Id, {add, Data}).
+
+add([], _Id, _Node) -> ok;
+add(Data, Id, Node) ->
+    gen_server:cast({Id, Node}, {add, Data}).
 
 status(Name,Type) ->
-    gen_server:call({global, ?MODULE}, {status, Name, Type}).
+    gen_server:call(?MODULE, {status, Name, Type}).
 status(Id) ->
-    gen_server:call({global, Id}, {status}).
+    gen_server:call(Id, {status}).
 
 dumpstats() ->
-    gen_server:cast({global, ?MODULE}, {dumpstats}).
+    gen_server:cast(?MODULE, {dumpstats}).
 dumpstats(Id) ->
-    gen_server:cast({global, Id}, {dumpstats}).
+    gen_server:cast(Id, {dumpstats}).
 
 set_output(BackEnd,Stream) ->
     set_output(BackEnd,Stream,?MODULE).
 
 set_output(BackEnd,Stream,Id) ->
-    gen_server:cast({global, Id}, {set_output, BackEnd, Stream}).
+    gen_server:cast(Id, {set_output, BackEnd, Stream}).
 
 %%%----------------------------------------------------------------------
 %%% Callback functions from gen_server
@@ -119,8 +127,8 @@ set_output(BackEnd,Stream,Id) ->
 %%          {stop, Reason}
 %%----------------------------------------------------------------------
 %% single type of data: don't need a dict, a simple list can store the data
-init([Type]) when Type == 'connect'; Type == 'page'; Type == 'request' ->
-    ?LOGF("starting dedicated stats server for ~p ~n",[Type],?INFO),
+init([Id, Type]) when Type == 'connect'; Type == 'page'; Type == 'request' ->
+    ?LOGF("starting dedicated stats server for ~p ~p~n",[Type, Id],?INFO),
     Stats = [0,0,0,0,0,0,0,0],
     {ok, #state{ dump_interval = ?config(dumpstats_interval),
                  stats     = Stats,
@@ -128,12 +136,12 @@ init([Type]) when Type == 'connect'; Type == 'page'; Type == 'request' ->
                  laststats = Stats
                 }};
 %% id = transaction or ?MODULE: it can handle several types of stats, must use a dict.
-init([Id]) ->
-    ?LOGF("starting ~p stats server~n",[Id],?INFO),
+init([Id, Type]) ->
+    ?LOGF("starting ~p stats server ~p~n",[Type, Id],?INFO),
     Tab = dict:new(),
     {ok, #state{ dump_interval = ?config(dumpstats_interval),
                  stats   = Tab,
-                 type    = Id,
+                 type    = Type,
                  laststats = Tab
                 }}.
 
@@ -197,9 +205,15 @@ handle_cast({set_output, BackEnd, {Stream, StreamFull}}, State) ->
     {noreply,State#state{backend=BackEnd, log=Stream, fullstats=StreamFull}};
 
 handle_cast({dumpstats}, State) ->
-    export_stats(State),
+    %% export_stats(State),
     NewStats = reset_all_stats(State#state.stats),
     {noreply, State#state{laststats = NewStats, stats=NewStats}};
+
+handle_cast({wait, Id, Time}, State) ->
+    ?LOGF("in_wait_cast: ~p ~p~n", [Id, Time], ?NOTICE),
+    ts_stats_server:done(Id, Time, State),
+    ?LOGF("after_wait_cast: ~p ~p~n", [Id, Time], ?NOTICE),
+    {stop, normal, State};
 
 handle_cast({stop}, State) ->
     {stop, normal, State};
@@ -222,9 +236,9 @@ handle_info(_Info, State) ->
 %% Purpose: Shutdown the server
 %% Returns: any (ignored by gen_server)
 %%----------------------------------------------------------------------
-terminate(Reason, State) ->
+terminate(Reason, _State) ->
     ?LOGF("stopping stats monitor (~p)~n",[Reason],?INFO),
-    export_stats(State),
+    %% export_stats(State),
     ok.
 
 %%--------------------------------------------------------------------
@@ -259,11 +273,13 @@ add_stats_data({sum, Name, Val}, Stats)  ->
 %%----------------------------------------------------------------------
 %% Func: export_stats/2
 %%----------------------------------------------------------------------
-export_stats(State=#state{type=Type,backend=Backend}) when Type == 'connect'; Type == 'page'; Type == 'request' ->
-    Param = {Backend,State#state.laststats,State#state.log},
+export_stats(Log, State=#state{type=Type,backend=Backend}) when Type == 'connect'; Type == 'page'; Type == 'request' ->
+    %% io:format(Log, "# export_stats: ~p~n~p~n", [Type, State]),
+    Param = {Backend,State#state.laststats,Log},
     print_stats({Type,sample}, State#state.stats, Param);
-export_stats(State=#state{backend=Backend}) ->
-    Param = {Backend,State#state.laststats,State#state.log},
+export_stats(Log, State=#state{backend=Backend, type=_Type}) ->
+    %% io:format(Log, "# export_stats1: ~p~n~p~n", [_Type, State]),
+    Param = {Backend,State#state.laststats,Log},
     dict:fold(fun print_stats/3, Param, State#state.stats).
 
 %%----------------------------------------------------------------------

@@ -43,7 +43,7 @@
 %% External exports
 -export([start/1, stop/0, newclient/1, endclient/1, sendmes/1, add/2,
          start_clients/1, abort/0, status/0, rcvmes/1, add/1, dumpstats/0,
-         add_match/2, dump/1, launcher_is_alive/0
+         add_match/2, dump/1, launcher_is_alive/0, set_time/1
         ]).
 
 %% gen_server callbacks
@@ -71,7 +71,8 @@
                 laststats,    % values of last printed stats
                 lastdate,     % date of last printed stats
                 type,         % type of logging (none, light, full)
-                launchers=0   % number of launchers started
+                launchers=0,  % number of launchers started,
+                time
                }).
 
 -record(stats, {
@@ -102,12 +103,21 @@ start_clients({Machines, Dump, BackEnd}) ->
 stop() ->
     gen_server:cast({global, ?MODULE}, {stop}).
 
+set_time(Time) ->
+    gen_server:cast({global, ?MODULE}, {set_time, Time}).
+
+
 add(nocache,Data) ->
+    ?LOG("nocache add: ~n",?ERR),
     gen_server:cast({global, ?MODULE}, {add, Data}).
 
 
 add(Data) ->
-    ts_mon_cache:add(Data).
+    Time = integer_to_list(ts_utils:now_sec() div 10),
+    Node = get(controller_node),
+    do_add_data({add, Data}, Time, Node).
+    %% gen_server:cast({global, ?MODULE}, {add, Data}).
+    %% ts_mon_cache:add(Data).
 
 add_match(Data,{UserId,SessionId,RequestId,Tr,Name}) ->
     add_match(Data,{UserId,SessionId,RequestId,[],Tr,Name});
@@ -232,24 +242,40 @@ handle_call(Request, _From, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%----------------------------------------------------------------------
-handle_cast({add, Data}, State=#state{stats=Stats}) when is_list(Data) ->
-    case State#state.backend of
-        fullstats -> io:format(State#state.fullstats,"~p~n",[Data]);
-        _Other   -> ok
-    end,
-    New = lists:foldl(fun ts_stats_mon:add_stats_data/2, Stats#stats.os_mon, Data),
-    NewStats = Stats#stats{os_mon=New},
-    {noreply,State#state{stats=NewStats}};
-
-handle_cast({add, Data}, State=#state{stats=Stats}) when is_tuple(Data) ->
-    case State#state.backend of
-        fullstats -> io:format(State#state.fullstats,"~p~n",[Data]);
-        _Other   -> ok
-    end,
-    New = ts_stats_mon:add_stats_data(Data, Stats#stats.os_mon),
-    NewStats = Stats#stats{os_mon=New},
-    {noreply,State#state{stats=NewStats}};
-
+handle_cast({set_time, Time}, State) ->
+    {noreply, State#state{time = Time}};
+handle_cast(_, State=#state{time = undefined}) ->
+    {noreply, State};
+handle_cast({add, Data}, State=#state{time = Time}) when is_list(Data) ->
+    ?LOGF("add_data: ~p~n", [Data], ?ERR),
+    {Stats, Request, Page, Connect, Transaction} = classify_data(Data),
+    StatList = [{ts_stats_mon, Stats}, {request, Request}, {page, Page},
+                {connect, Connect}, {transaction, Transaction}],
+    lists:foreach(fun({Type, Stat}) ->
+                case Stat of
+                    [] -> ok;
+                    _ ->
+                        ts_stats_mon:add(Stat, ts_stats_server:get_id(Time, Type))
+                end end, StatList),
+    {noreply, State};
+handle_cast({add, Data = {sample, Type, _}}, State=#state{time = Time})
+        when ((Type == 'connect') or (Type == 'page')
+              or (Type == 'request')) ->
+    ServerId = ts_stats_server:get_id(Time, Type),
+    ts_stats_mon:add(get_data(Data), ServerId),
+    {noreply, State};
+handle_cast({add, Data = {sample, {_, _}, _}}, State=#state{time = Time}) ->
+    ServerId = ts_stats_server:get_id(Time, ts_stats_mon),
+    ts_stats_mon:add(get_data(Data), ServerId),
+    {noreply, State};
+handle_cast({add, Data = {sample, _, _}}, State=#state{time = Time}) ->
+    ServerId = ts_stats_server:get_id(Time, transaction),
+    ts_stats_mon:add(get_data(Data), ServerId),
+    {noreply, State};
+handle_cast({add, Data}, State=#state{time = Time}) ->
+    ServerId = ts_stats_server:get_id(Time, ts_stats_mon),
+    ts_stats_mon:add(Data, ServerId),
+    {noreply, State};
 handle_cast({newclient, Who, When}, State=#state{stats=Stats}) ->
     Clients =  State#state.client+1,
     OldCount = Stats#stats.users_count,
@@ -387,7 +413,9 @@ terminate(Reason, State) ->
     export_stats(State),
     % blocking call to all ts_stats_mon; this way, we are
     % sure the last call to dumpstats is finished
-    lists:foreach(fun(Name) -> ts_stats_mon:status(Name) end, ?STATSPROCS),
+    Time = integer_to_list(ts_utils:now_sec() div 10),
+    lists:foreach(fun(Name) -> ts_stats_mon:status(ts_stats_server:get_id(Time, Name)) end,
+                  ?STATSPROCS),
     case State#state.backend of
         json ->
             io:format(State#state.log,"]}]}~n",[]);
@@ -413,7 +441,65 @@ code_change(_OldVsn, StateData, _Extra) ->
 %%%----------------------------------------------------------------------
 %%% Internal functions
 %%%----------------------------------------------------------------------
+do_add_data({add, Data}, Time, Node) when is_list(Data) ->
+    {Stats, Request, Page, Connect, Transaction} = classify_data(Data),
+    StatList = [{ts_stats_mon, Stats}, {request, Request}, {page, Page},
+                {connect, Connect}, {transaction, Transaction}],
+    lists:foreach(fun({Type, Stat}) ->
+                case Stat of
+                    [] -> ok;
+                    _ -> ts_stats_mon:add(Stat, ts_stats_server:get_id(Time, Type), Node)
+                end end, StatList);
+do_add_data({add, Data = {sample, Type, _}}, Time, Node)
+        when ((Type == 'connect') or (Type == 'page')
+              or (Type == 'request')) ->
+    ServerId = ts_stats_server:get_id(Time, Type),
+    ts_stats_mon:add(get_data(Data), ServerId, Node);
+do_add_data({add, Data = {sample, {_, _}, _}}, Time, Node) ->
+    ServerId = ts_stats_server:get_id(Time, ts_stats_mon),
+    ts_stats_mon:add(get_data(Data), ServerId, Node);
+do_add_data({add, Data = {sample, _, _}}, Time, Node) ->
+    ServerId = ts_stats_server:get_id(Time, transaction),
+    ts_stats_mon:add(get_data(Data), ServerId, Node);
+do_add_data({add, Data}, Time, Node) ->
+    ServerId = ts_stats_server:get_id(Time, ts_stats_mon),
+    ts_stats_mon:add(Data, ServerId, Node).
 
+get_data({sample, request, Value}) ->
+    [Value];
+get_data({sample, page, Value}) ->
+    [Value];
+get_data({sample, connect, Value}) ->
+    [Value];
+get_data(Other) ->
+    Other.
+
+classify_data(Data) ->
+    classify_data(Data, {[], [], [], [], []}).
+
+classify_data([], Result) ->
+    Result;
+classify_data([Data|L], Result) ->
+    Tmp = classify(Data, Result),
+    classify_data(L, Tmp).
+
+classify({sample, request, Value},
+         {Stats, Request, Page, Connect, Transaction}) ->
+    {Stats, [Value|Request], Page, Connect, Transaction};
+classify({sample, page, Value},
+         {Stats, Request, Page, Connect, Transaction}) ->
+    {Stats, Request, [Value|Page], Connect, Transaction};
+classify({sample, connect, Value},
+         {Stats, Request, Page, Connect, Transaction}) ->
+    {Stats, Request, Page, [Value|Connect], Transaction};
+classify(Data = {sample, {_, _}, _},
+         {Stats, Request, Page, Connect, Transaction}) ->
+    {[Data|Stats], Request, Page, Connect, Transaction};
+classify(Data = {sample, _, _},
+         {Stats, Request, Page, Connect, [Data|Transaction]}) ->
+    {Stats, Request, Page, Connect, [Data|Transaction]};
+classify(Data, {Stats, Request, Page, Connect, Transaction}) ->
+    {[Data | Stats], Request, Page, Connect, Transaction}.
 %%----------------------------------------------------------------------
 %% Func: start_logger/3
 %% Purpose: open log files and start timer
@@ -435,8 +521,9 @@ start_logger({Machines, DumpType, Backend}, _From, State=#state{log=Log,fullstat
     ?LOGF("Activate clients with ~p backend~n",[Backend],?NOTICE),
     print_headline(Log,Backend),
     start_launchers(Machines),
-    timer:apply_interval(State#state.dump_interval, ?MODULE, dumpstats, [] ),
-    lists:foreach(fun(Name) -> ts_stats_mon:set_output(Backend,{Log,FS}, Name) end, ?STATSPROCS),
+    ts_stats_server:start_stats(Backend, {Log, FS}),
+    %% timer:apply_interval(State#state.dump_interval, ?MODULE, dumpstats, [] ),
+    %% lists:foreach(fun(Name) -> ts_stats_mon:set_output(Backend,{Log,FS}, Name) end, ?STATSPROCS),
     start_dump(State#state{type=DumpType, backend=Backend}).
 
 print_headline(Log,json)->

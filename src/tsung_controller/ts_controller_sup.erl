@@ -60,16 +60,8 @@ init([LogDir]) ->
               worker, [ts_config_server]},
     Mon = {ts_mon, {ts_mon, start, [LogDir]}, transient, 2000,
                  worker, [ts_mon]},
-    Stats_Mon = {ts_stats_mon, {ts_stats_mon, start, []}, transient, 2000,
-                 worker, [ts_stats_mon]},
-    Request_Mon = {request, {ts_stats_mon, start, [request]}, transient, 2000,
-                 worker, [ts_stats_mon]},
-    Page_Mon = {page, {ts_stats_mon, start, [page]}, transient, 2000,
-                 worker, [ts_stats_mon]},
-    Connect_Mon = {connect, {ts_stats_mon, start, [connect]}, transient, 2000,
-                 worker, [ts_stats_mon]},
-    Transaction_Mon = {transaction, {ts_stats_mon, start, [transaction]},
-                       transient, 2000, worker, [ts_stats_mon]},
+    Stats = {ts_stats_server, {ts_stats_server, start_link, [?MODULE]}, transient, 2000,
+                 worker, [ts_stats_server]},
     Match_Log = {ts_match_logger, {ts_match_logger, start, [LogDir]}, transient, 2000,
                  worker, [ts_match_logger]},
     ErlangSup   = {ts_erlang_mon_sup, {ts_os_mon_sup, start_link, [erlang]},
@@ -90,7 +82,7 @@ init([LogDir]) ->
                    worker, [ts_interaction_server]},
     start_inets(LogDir),
     {ok,{{one_for_one,?retries,10},
-         [Config, Mon, Stats_Mon, Request_Mon, Page_Mon, Connect_Mon, Transaction_Mon,
+         [Config, Mon, Stats,
           Match_Log, Timer, Msg, Notify, Interaction, UserSup, ErlangSup, MuninSup,SNMPSup]}}.
 
 %%%----------------------------------------------------------------------

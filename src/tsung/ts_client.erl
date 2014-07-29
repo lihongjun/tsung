@@ -92,8 +92,10 @@ init(#session{ id           = SessionId,
                seed         = Seed,
                server       = Server,
                type         = CType,
-               req_list     = ReqList}) ->
+               req_list     = ReqList,
+               node         = Node}) ->
     ?DebugF("Init ... started with count = ~p~n",[Count]),
+    put(controller_node, Node),
     case Seed of
         now ->
             ts_utils:init_seed();

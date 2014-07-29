@@ -110,7 +110,8 @@
           userid,
           seed,
           dump,
-          req_list
+          req_list,
+          node
         }).
 
 -record(arrivalphase,
