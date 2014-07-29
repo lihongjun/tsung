@@ -210,9 +210,7 @@ handle_cast({dumpstats}, State) ->
     {noreply, State#state{laststats = NewStats, stats=NewStats}};
 
 handle_cast({wait, Id, Time}, State) ->
-    ?LOGF("in_wait_cast: ~p ~p~n", [Id, Time], ?NOTICE),
     ts_stats_server:done(Id, Time, State),
-    ?LOGF("after_wait_cast: ~p ~p~n", [Id, Time], ?NOTICE),
     {stop, normal, State};
 
 handle_cast({stop}, State) ->

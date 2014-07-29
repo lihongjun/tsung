@@ -247,7 +247,6 @@ handle_cast({set_time, Time}, State) ->
 handle_cast(_, State=#state{time = undefined}) ->
     {noreply, State};
 handle_cast({add, Data}, State=#state{time = Time}) when is_list(Data) ->
-    ?LOGF("add_data: ~p~n", [Data], ?ERR),
     {Stats, Request, Page, Connect, Transaction} = classify_data(Data),
     StatList = [{ts_stats_mon, Stats}, {request, Request}, {page, Page},
                 {connect, Connect}, {transaction, Transaction}],

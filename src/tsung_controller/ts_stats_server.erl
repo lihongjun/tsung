@@ -95,8 +95,8 @@ handle_call({start_stats, Backend, Args = {Log, _}}, _From,
     ts_mon:set_time(NamePrefix),
 
     erlang:start_timer(DumpInterval, self(), new_stats),
-    {reply, ok, State#state{time = integer_to_list(Timestamp),
-                            backend = Backend, log = Log, args = Args}};
+    {reply, ok, State#state{time = Timestamp, backend = Backend,
+                            log = Log, args = Args}};
 
 handle_call(_Request, _From, State) ->
     ?LOGF("stats_server_unknown_msg(call) ~p~n", [_Request], ?NOTICE),
@@ -120,8 +120,7 @@ handle_cast({done, _Id, Time, Data}, State = #state{log = Log}) ->
     case NewWaitStatus of
         5 ->
             Timestamp = ts_utils:now_sec(),
-            io:format(Log, "# stats: dump at ~w ~w~n",
-                      [list_to_integer(Time), Timestamp]),
+            io:format(Log, "# stats: dump at ~w ~w~n", [Time, Timestamp]),
             lists:foreach(fun(Entry) ->
                         ts_stats_mon:export_stats(Log, Entry) end, NewDataList),
             erase({wait_result, Time});
@@ -146,8 +145,8 @@ handle_info({timeout, _Ref, new_stats},
             State = #state{time = PreTime, parent = Parent,
                            backend = Backend, args = Args,
                            dump_interval = DumpInterval}) ->
-    ?LOGF("start_new_stat_server: ~p~n", [ts_utils:now_sec()], ?ERR),
     Timestamp = ts_utils:now_sec(),
+    ?LOGF("start_new_stat_server: ~p~n", [Timestamp], ?ERR),
     NamePrefix = integer_to_list(Timestamp div 10),
    
     lists:foreach(fun(Type) -> StatId = get_id(NamePrefix, Type),
@@ -160,13 +159,15 @@ handle_info({timeout, _Ref, new_stats},
 
     put({wait_result, PreTime}, {0, []}),
 
-    lists:foreach(fun(Type) -> StatId = get_id(PreTime, Type),
+    lists:foreach(fun(Type) ->
+                NP = integer_to_list(PreTime div 10),
+                StatId = get_id(NP, Type),
                 ts_stats_mon:wait(PreTime, StatId) end, ?STATSPROCS),
 
 
     ?LOGF("new_stat_server_started: ~p~n", [ts_utils:now_sec()], ?ERR),
     erlang:start_timer(DumpInterval, self(), new_stats),
-    {noreply, State#state{time = integer_to_list(Timestamp)}};
+    {noreply, State#state{time = Timestamp}};
 
 handle_info(UnknownMsg, State) ->
     ?LOGF("stats_server_unknown_msg(info) ~p~n", [UnknownMsg], ?NOTICE),
