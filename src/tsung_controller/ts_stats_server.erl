@@ -26,6 +26,8 @@
 -record(state, {log, parent, time, dump_interval, backend, args}).
 
 -define(STATSPROCS, [request, connect, page, transaction, ts_stats_mon]).
+-define(TEN_SEC, 10000).
+-define(DELTA, 50).
 
 %%%===================================================================
 %%% API
@@ -82,18 +84,18 @@ init([Parent]) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_call({start_stats, Backend, Args = {Log, _}}, _From,
-            State = #state{dump_interval = DumpInterval, parent = Parent}) ->
+            State = #state{dump_interval = _DumpInterval, parent = Parent}) ->
     Current = ts_utils:now_ms(),
-    T1 = Current rem (10 * 1000),
-    Delay = 9900 - T1,
-    ?LOGF("start_stats_delay: ~p ~p~n", [Delay, Current], ?ERR),
-    case Delay > 0 of
-        true -> timer:sleep(Delay);
-        _ -> ok
+    T1 = Current rem ?TEN_SEC,
+    Delay = ?TEN_SEC - ?DELTA - T1,
+    Interval = case Delay < ?DELTA of
+        true -> ?TEN_SEC;
+        _ -> Delay
     end,
-    Timestamp = ts_utils:now_sec(),
-    ?LOGF("start_stats_current: ~p~n", [ts_utils:now_ms()], ?ERR),
-    NamePrefix = integer_to_list(Timestamp div 10 + 1),
+    ?LOGF("start_stats_delay: ~p ~p~n", [Delay, Current], ?ERR),
+    Timestamp = ts_utils:now_ms(),
+    ?LOGF("start_stats_current: ~p~n", [Timestamp], ?ERR),
+    NamePrefix = integer_to_list(Timestamp div ?TEN_SEC),
     lists:foreach(fun(Type) -> StatId = get_id(NamePrefix, Type),
                 Stat = {StatId, {ts_stats_mon, start, [StatId, Type]},
                         transient, 2000, worker, [ts_stats_mon]},
@@ -102,7 +104,7 @@ handle_call({start_stats, Backend, Args = {Log, _}}, _From,
 
     ts_mon:set_time(NamePrefix),
 
-    erlang:start_timer(DumpInterval, self(), new_stats),
+    erlang:start_timer(Interval, self(), new_stats),
     {reply, ok, State#state{time = Timestamp, backend = Backend,
                             log = Log, args = Args}};
 
@@ -128,7 +130,7 @@ handle_cast({done, _Id, Time, Data}, State = #state{log = Log}) ->
     case NewWaitStatus of
         5 ->
             Timestamp = ts_utils:now_sec(),
-            io:format(Log, "# stats: dump at ~w ~w~n", [Time, Timestamp]),
+            io:format(Log, "# stats: dump at ~w ~w~n", [Time div 1000, Timestamp]),
             lists:foreach(fun(Entry) ->
                         ts_stats_mon:export_stats(Log, Entry) end, NewDataList),
             erase({wait_result, Time});
@@ -152,10 +154,25 @@ handle_cast(_Msg, State) ->
 handle_info({timeout, _Ref, new_stats},
             State = #state{time = PreTime, parent = Parent,
                            backend = Backend, args = Args,
-                           dump_interval = DumpInterval}) ->
-    Timestamp = ts_utils:now_sec(),
-    ?LOGF("start_new_stat_server: ~p~n", [ts_utils:now_ms()], ?ERR),
-    NamePrefix = integer_to_list(Timestamp div 10),
+                           dump_interval = _DumpInterval}) ->
+    Timestamp = ts_utils:now_ms(),
+    T1 = PreTime div ?TEN_SEC,
+    T2 = Timestamp div ?TEN_SEC,
+    
+    {NP1, Interval} = case T2 - T1 of
+        2 -> %% high load
+            T3 = Timestamp rem ?TEN_SEC,
+            {T2 - 1, ?TEN_SEC - (T3 - ?TEN_SEC) - ?DELTA};
+        1 -> %% normal
+            {T2, ?TEN_SEC};
+        0 ->
+            {T2 + 1, ?TEN_SEC}
+    end,
+
+    NamePrefix = integer_to_list(NP1),
+
+    ?LOGF("start_new_stat_server: ~p ~p ~p~n",
+          [Timestamp, NamePrefix, Interval], ?ERR),
    
     lists:foreach(fun(Type) -> StatId = get_id(NamePrefix, Type),
                 Stat = {StatId, {ts_stats_mon, start, [StatId, Type]},
@@ -165,17 +182,22 @@ handle_info({timeout, _Ref, new_stats},
 
     ts_mon:set_time(NamePrefix),
 
-    put({wait_result, PreTime}, {0, []}),
+    ?LOGF("new_stat_server_started: ~p~n", [ts_utils:now_ms()], ?ERR),
+    erlang:start_timer(Interval, self(), new_stats),
 
+
+    %% wait on more sec
+    Wait = NP1 * ?TEN_SEC + 1000 - Timestamp,
+    ?LOGF("before_wait_result: ~p~n", [Wait], ?ERR),
+    timer:sleep(Wait),
+
+    put({wait_result, PreTime}, {0, []}),
     lists:foreach(fun(Type) ->
-                NP = integer_to_list(PreTime div 10),
+                NP = integer_to_list(PreTime div ?TEN_SEC),
                 StatId = get_id(NP, Type),
                 ts_stats_mon:wait(PreTime, StatId) end, ?STATSPROCS),
 
-
-    ?LOGF("new_stat_server_started: ~p~n", [ts_utils:now_ms()], ?ERR),
-    erlang:start_timer(DumpInterval, self(), new_stats),
-    {noreply, State#state{time = Timestamp}};
+    {noreply, State#state{time = NP1 * ?TEN_SEC}};
 
 handle_info(UnknownMsg, State) ->
     ?LOGF("stats_server_unknown_msg(info) ~p~n", [UnknownMsg], ?NOTICE),
