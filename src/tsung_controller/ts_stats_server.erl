@@ -154,7 +154,7 @@ handle_info({timeout, _Ref, new_stats},
                            backend = Backend, args = Args,
                            dump_interval = DumpInterval}) ->
     Timestamp = ts_utils:now_sec(),
-    ?LOGF("start_new_stat_server: ~p~n", [Timestamp], ?NOTICE),
+    ?LOGF("start_new_stat_server: ~p~n", [ts_utils:now_ms()], ?ERR),
     NamePrefix = integer_to_list(Timestamp div 10),
    
     lists:foreach(fun(Type) -> StatId = get_id(NamePrefix, Type),
@@ -173,7 +173,7 @@ handle_info({timeout, _Ref, new_stats},
                 ts_stats_mon:wait(PreTime, StatId) end, ?STATSPROCS),
 
 
-    ?LOGF("new_stat_server_started: ~p~n", [ts_utils:now_sec()], ?NOTICE),
+    ?LOGF("new_stat_server_started: ~p~n", [ts_utils:now_ms()], ?ERR),
     erlang:start_timer(DumpInterval, self(), new_stats),
     {noreply, State#state{time = Timestamp}};
 
