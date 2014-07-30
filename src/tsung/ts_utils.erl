@@ -33,7 +33,7 @@
 
 %% user interface
 -export([debug/3, debug/4, get_val/1, init_seed/0, chop/1, elapsed/2,
-         now_sec/0, node_to_hostname/1, add_time/2, keyumerge/3, key1search/2,
+         now_sec/0, now_ms/0, node_to_hostname/1, add_time/2, keyumerge/3, key1search/2,
          level2int/1, mkey1search/2, datestr/0, datestr/1,
          erl_system_args/0, erl_system_args/1, setsubdir/1, export_text/1,
          foreach_parallel/2, spawn_par/3, inet_setopts/3, resolve/2,
@@ -189,6 +189,10 @@ init_seed()->
 %%----------------------------------------------------------------------
 now_sec() ->
     time2sec(now()).
+
+now_ms() ->
+    {Mega, Sec, Micro} = now(),
+    (Mega*1000000 + Sec)*1000 + round(Micro/1000).
 
 time2sec({MSec, Seconds, _}) ->
     Seconds+1000000*MSec.

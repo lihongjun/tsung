@@ -83,9 +83,17 @@ init([Parent]) ->
 %%--------------------------------------------------------------------
 handle_call({start_stats, Backend, Args = {Log, _}}, _From,
             State = #state{dump_interval = DumpInterval, parent = Parent}) ->
-    ?LOGF("start_stats: ~p~n", [DumpInterval], ?NOTICE),
+    Current = ts_utils:now_ms(),
+    T1 = Current rem (10 * 1000),
+    Delay = 9900 - T1,
+    ?LOGF("start_stats_delay: ~p ~p~n", [Delay, Current], ?ERR),
+    case Delay > 0 of
+        true -> timer:sleep(Delay);
+        _ -> ok
+    end,
     Timestamp = ts_utils:now_sec(),
-    NamePrefix = integer_to_list(Timestamp div 10),
+    ?LOGF("start_stats_current: ~p~n", [ts_utils:now_ms()], ?ERR),
+    NamePrefix = integer_to_list(Timestamp div 10 + 1),
     lists:foreach(fun(Type) -> StatId = get_id(NamePrefix, Type),
                 Stat = {StatId, {ts_stats_mon, start, [StatId, Type]},
                         transient, 2000, worker, [ts_stats_mon]},
