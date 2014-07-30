@@ -27,7 +27,7 @@
 
 -define(STATSPROCS, [request, connect, page, transaction, ts_stats_mon]).
 -define(TEN_SEC, 10000).
--define(DELTA, 50).
+-define(DELTA, 100).
 
 %%%===================================================================
 %%% API
@@ -159,16 +159,17 @@ handle_info({timeout, _Ref, new_stats},
     T1 = PreTime div ?TEN_SEC,
     T2 = Timestamp div ?TEN_SEC,
     
-    {NP1, Interval} = case T2 - T1 of
-        2 -> %% high load
-            T3 = Timestamp rem ?TEN_SEC,
-            {T2 - 1, ?TEN_SEC - (T3 - ?TEN_SEC) - ?DELTA};
-        1 -> %% normal
-            {T2, ?TEN_SEC};
-        0 ->
-            {T2 + 1, ?TEN_SEC}
+    NP1 = case T2 - T1 of
+        2 -> T2 - 1;
+        1 -> T2;
+        0 -> T2 + 1
     end,
 
+    Diff = Timestamp - NP1 * ?TEN_SEC,
+    Interval = case Diff > 0 of
+        true -> ?TEN_SEC - ?DELTA - Diff;
+        _ -> ?TEN_SEC
+    end,
     NamePrefix = integer_to_list(NP1),
 
     ?LOGF("start_new_stat_server: ~p ~p ~p~n",
