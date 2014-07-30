@@ -407,12 +407,11 @@ handle_info(_Info, State) ->
 %% Purpose: Shutdown the server
 %% Returns: any (ignored by gen_server)
 %%----------------------------------------------------------------------
-terminate(Reason, State) ->
+terminate(Reason, State = #state{time = Time}) ->
     ?LOGF("stopping monitor (~p)~n",[Reason],?NOTICE),
     export_stats(State),
     % blocking call to all ts_stats_mon; this way, we are
     % sure the last call to dumpstats is finished
-    Time = integer_to_list(ts_utils:now_sec() div 10),
     lists:foreach(fun(Name) -> ts_stats_mon:status(ts_stats_server:get_id(Time, Name)) end,
                   ?STATSPROCS),
     case State#state.backend of
